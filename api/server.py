@@ -8,17 +8,25 @@ import json
 import threading
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from storage.db import (
     get_active_anomalies, get_active_clusters,
-    get_latest_report, get_recent_raw_events,
+    get_latest_report, get_recent_raw_events, get_conn,
 )
 from config import API
+from analysis.report_generator import ReportGenerator
+from analysis.interpreter import DataInterpreter
+from models.intelligence import IntelligenceReport
+from models.event import AnomalyEvent
 
 log = logging.getLogger("API")
 app = Flask(__name__)
 CORS(app)
+
+# Generators
+report_gen = ReportGenerator()
+interpreter = DataInterpreter()
 
 # main.py tarafından doldurulur
 _scan_trigger = None
@@ -106,6 +114,114 @@ def sources():
         "telegram_channels": TELEGRAM["channels"],
         "scan_intervals": SCAN_INTERVALS,
     })
+
+
+@app.route("/api/report/pdf")
+def report_pdf():
+    """Son raporu PDF olarak indir."""
+    try:
+        report_data = get_latest_report()
+        if not report_data:
+            return jsonify({"error": "Rapor bulunamadı"}), 404
+
+        # Dict'i IntelligenceReport nesnesine dönüştür
+        report = IntelligenceReport(**report_data)
+
+        # PDF oluştur
+        filepath = report_gen.generate(report)
+
+        # İndir
+        return send_file(filepath, as_attachment=True, download_name=f"osint_report_{report.report_id}.pdf")
+
+    except Exception as e:
+        log.error(f"PDF oluşturma hatası: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/interpret/anomaly/<anomaly_id>")
+def interpret_anomaly(anomaly_id):
+    """Anomaliyi yorumla."""
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT * FROM anomaly_events WHERE event_id = ? LIMIT 1",
+            (anomaly_id,)
+        ).fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({"error": "Anomali bulunamadı"}), 404
+
+        # Dict'e çevir
+        anom_dict = dict(row)
+
+        # AnomalyEvent nesnesine dönüştür (simplified)
+        # Not: Burada tam conversion yapmak için raw event da gerekli olabilir
+        interpretation = interpreter.interpret_anomaly(anom_dict)
+
+        return jsonify(interpretation)
+
+    except Exception as e:
+        log.error(f"Yorumlama hatası: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/interpret/cluster/<cluster_id>")
+def interpret_cluster(cluster_id):
+    """Korelasyon kümesini yorumla."""
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT * FROM correlation_clusters WHERE cluster_id = ? LIMIT 1",
+            (cluster_id,)
+        ).fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({"error": "Küme bulunamadı"}), 404
+
+        cluster_dict = dict(row)
+        interpretation = interpreter.interpret_cluster(cluster_dict)
+
+        return jsonify(interpretation)
+
+    except Exception as e:
+        log.error(f"Küme yorumlama hatası: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/insights")
+def insights():
+    """Üst seviye insights — anomaliler + kümeler + öngörüler."""
+    try:
+        hours = int(request.args.get("hours", 24))
+
+        anomalies = get_active_anomalies(hours=hours)
+        clusters = get_active_clusters(hours=hours)
+
+        # Kritik anomalileri yorumla
+        interpretations = []
+        for anom in anomalies[:5]:  # Top 5
+            interp = interpreter.interpret_anomaly(anom)
+            interpretations.append(interp)
+
+        # Kritik kümeleri yorumla
+        cluster_interps = []
+        for clust in clusters[:3]:  # Top 3
+            interp = interpreter.interpret_cluster(clust)
+            cluster_interps.append(interp)
+
+        return jsonify({
+            "timestamp": datetime.utcnow().isoformat(),
+            "anomaly_insights": interpretations,
+            "cluster_insights": cluster_interps,
+            "total_anomalies": len(anomalies),
+            "total_clusters": len(clusters),
+        })
+
+    except Exception as e:
+        log.error(f"Insights hatası: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 def run_server():

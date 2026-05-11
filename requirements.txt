@@ -29,6 +29,9 @@ scipy>=1.10.0
 # Logging & Config
 python-dotenv>=1.0.0
 
+# Scheduling
+schedule>=1.2.0
+
 # Optional: PDF/export
 PyPDF2>=3.0.0
 openpyxl>=3.10.0
