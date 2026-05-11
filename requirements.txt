@@ -1,0 +1,34 @@
+# OSINT Intelligence Engine Requirements
+
+# Core
+requests>=2.31.0
+feedparser>=6.0.10
+python-dateutil>=2.8.2
+
+# Web/API
+Flask>=3.0.0
+Flask-CORS>=4.0.0
+
+# Data collection
+praw>=7.7.0
+telethon>=1.33.0
+aiohttp>=3.9.0
+
+# Database
+sqlite3-python>=1.0.0
+
+# Report generation
+reportlab>=4.0.7
+jinja2>=3.1.2
+markdown>=3.5.0
+
+# Analysis/Statistics
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Logging & Config
+python-dotenv>=1.0.0
+
+# Optional: PDF/export
+PyPDF2>=3.0.0
+openpyxl>=3.10.0

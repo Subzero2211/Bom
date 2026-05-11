@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>OSINT-INT // AIR + SEA</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#020a06;--bg2:#04120a;--bg3:#061a10;
+  --border:#0c2e18;--border2:#164a28;
+  --air:#00e5ff;--air2:#006070;
+  --sea:#00ff9d;--sea2:#006040;
+  --crit:#ff2244;--warn:#ffaa00;--ok:#00ff88;
+  --text:#b8e8cc;--dim:#1e5c32;--dimmer:#0c2e18;
+  --corr:#dd88ff;--corr2:#3a1060;
+  --grid:rgba(0,255,100,0.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Share Tech Mono',monospace;
+  font-size:11px;
+  display:flex;flex-direction:column;
+  background-image:
+    linear-gradient(var(--grid) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+/* scanline */
+body::before{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,100,0.018) 2px,rgba(0,255,100,0.018) 4px);
+  pointer-events:none;z-index:9999;
+}
+
+/* ── TOPBAR ── */
+#topbar{
+  display:flex;align-items:center;gap:12px;
+  padding:7px 14px;border-bottom:1px solid var(--border);
+  background:rgba(2,10,6,0.97);flex-shrink:0;position:relative;z-index:500;
+}
+.logo{
+  font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;
+  letter-spacing:0.15em;color:var(--text);white-space:nowrap;
+}
+.logo .a{color:var(--air)} .logo .s{color:var(--sea)} .logo .c{color:var(--corr)}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:all .3s}
+.dot.ok{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.dot.warn{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+.dot.crit{background:var(--crit);box-shadow:0 0 10px var(--crit);animation:blk .5s infinite}
+#src-badges{display:flex;gap:5px}
+.src-badge{font-size:8px;padding:2px 7px;border:1px solid;letter-spacing:.08em}
+.src-badge.live{border-color:var(--ok);color:var(--ok);background:rgba(0,255,136,.07)}
+.src-badge.sim{border-color:var(--warn);color:var(--warn);background:rgba(255,170,0,.07)}
+.src-badge.off{border-color:var(--dim);color:var(--dim)}
+#alert-strip{display:flex;gap:6px;margin-left:auto;align-items:center}
+.abadge{font-size:9px;padding:2px 8px;border:1px solid;letter-spacing:.1em}
+.abadge.crit{border-color:var(--crit);color:var(--crit);background:rgba(255,34,68,.08)}
+.abadge.warn{border-color:var(--warn);color:var(--warn);background:rgba(255,170,0,.08)}
+.abadge.corr{border-color:var(--corr);color:var(--corr);background:rgba(221,136,255,.08)}
+#utc{font-size:9px;color:var(--dim);white-space:nowrap;margin-left:6px}
+
+/* ── MODE BAR ── */
+#modebar{
+  display:flex;align-items:center;gap:4px;padding:5px 14px;
+  border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;
+}
+#modebar .mlabel{font-size:9px;color:var(--dim);letter-spacing:.12em;margin-right:6px}
+.mbtn{
+  padding:3px 11px;background:transparent;border:1px solid var(--border);
+  color:var(--dim);cursor:pointer;font-family:'Share Tech Mono',monospace;
+  font-size:9px;letter-spacing:.08em;transition:all .15s;white-space:nowrap;
+}
+.mbtn:hover{border-color:var(--border2);color:var(--text)}
+.mbtn.active{border-color:var(--air);color:var(--air);background:rgba(0,229,255,.07)}
+#mode-desc{font-size:9px;color:var(--dim);margin-left:10px;flex:1}
+#scan-btn{
+  padding:4px 14px;border:1px solid var(--border2);background:transparent;
+  color:var(--air);cursor:pointer;font-family:'Share Tech Mono',monospace;
+  font-size:9px;letter-spacing:.1em;transition:all .2s;
+}
+#scan-btn:hover{background:rgba(0,229,255,.1)}
+#scan-btn:disabled{color:var(--dim);cursor:not-allowed;border-color:var(--border);animation:blk .7s infinite}
+
+/* ── MAIN GRID ── */
+#grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr;
+  gap:1px;flex:1;background:var(--border);overflow:hidden;
+}
+.pane{background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+.ph{
+  display:flex;align-items:center;gap:7px;padding:5px 11px;
+  border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;
+}
+.pt{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:12px;letter-spacing:.15em}
+.pt.air{color:var(--air)} .pt.sea{color:var(--sea)} .pt.map{color:var(--text)} .pt.cor{color:var(--corr)}
+.pc{font-size:9px;color:var(--dim);margin-left:auto}
+
+/* ── TABLE ── */
+.pb{flex:1;overflow-y:auto}
+.pb::-webkit-scrollbar{width:3px}
+.pb::-webkit-scrollbar-thumb{background:var(--border2)}
+table{width:100%;border-collapse:collapse}
+thead tr{position:sticky;top:0;background:var(--bg2);z-index:5}
+th{padding:3px 7px;font-size:8.5px;letter-spacing:.1em;color:var(--dim);text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+th.r{text-align:right}
+td{padding:3px 7px;border-bottom:1px solid rgba(12,46,24,.6);white-space:nowrap;cursor:pointer;font-size:10px}
+td.r{text-align:right}
+tr.rc{background:rgba(255,34,68,.06)}
+tr.rw{background:rgba(255,170,0,.05)}
+tr.sel{background:rgba(0,229,255,.09)!important}
+tr:hover{background:rgba(255,255,255,.025)!important}
+.du{color:#00ff88;font-weight:bold}
+.dd{color:#ff2244;font-weight:bold}
+.dn{color:var(--dim)}
+.sc{color:var(--crit);font-size:9px}
+.sw{color:var(--warn);font-size:9px}
+.so{color:var(--dim);font-size:9px}
+.sx{color:#888;font-size:9px;font-style:italic}
+
+/* ── MAP ── */
+#map{flex:1}
+.leaflet-control-attribution{font-size:8px!important;opacity:.5}
+.leaflet-tile{filter:none!important}
+.mtt{
+  background:rgba(2,10,6,.97);border:1px solid var(--border2);
+  color:var(--text);font-family:'Share Tech Mono',monospace;font-size:10px;
+  padding:6px 10px;min-width:170px;line-height:1.7;
+}
+.leaflet-popup-content-wrapper{border-radius:0!important;padding:0!important;background:transparent!important;border:none!important;box-shadow:none!important}
+.leaflet-popup-content{margin:0!important}
+.leaflet-popup-tip-container{display:none!important}
+
+/* ── CORRELATION PANE ── */
+#corp{flex:1;overflow-y:auto;padding:7px}
+#corp::-webkit-scrollbar{width:3px}
+#corp::-webkit-scrollbar-thumb{background:var(--border2)}
+.cc{
+  border:1px solid var(--corr2);background:rgba(221,136,255,.04);
+  padding:8px 10px;margin-bottom:6px;position:relative;padding-left:14px;
+}
+.cc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.cc.hi::before{background:var(--crit)}
+.cc.md::before{background:var(--warn)}
+.cc.lo::before{background:var(--corr)}
+.ct{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:12px;letter-spacing:.1em;margin-bottom:3px}
+.cc.hi .ct{color:var(--crit)} .cc.md .ct{color:var(--warn)} .cc.lo .ct{color:var(--corr)}
+.cb{color:var(--text);line-height:1.7;font-size:10px}
+.cm{font-size:9px;color:var(--dim);margin-top:4px}
+.no-corr{color:var(--dim);text-align:center;padding:25px 12px;line-height:2;font-size:10px}
+.method-box{font-size:9px;color:var(--dim);padding:9px 10px;border-top:1px solid var(--border);margin-top:6px;line-height:1.9}
+.method-box span{color:var(--corr)}
+
+/* ── LEGEND ── */
+.map-legend{display:flex;gap:12px;font-size:8px;color:var(--dim);padding:3px 0}
+
+@keyframes blk{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="dot ok" id="status-dot"></div>
+  <div class="logo">OSINT·<span class="a">AIR</span>+<span class="s">SEA</span> // <span class="c">INT</span></div>
+  <div id="src-badges">
+    <span class="src-badge" id="badge-opensky">✈ OPENSKY</span>
+    <span class="src-badge" id="badge-aishub">⚓ AISHUB</span>
+    <span class="src-badge" id="badge-mt">⚓ MARINETRAFFIC</span>
+  </div>
+  <div id="alert-strip">
+    <span class="abadge crit" id="ab-crit" style="display:none"></span>
+    <span class="abadge warn" id="ab-warn" style="display:none"></span>
+    <span class="abadge corr" id="ab-corr" style="display:none"></span>
+  </div>
+  <div id="utc"></div>
+</div>
+
+<!-- MODE BAR — gerçek veri modunu göster -->
+<div id="modebar">
+  <div class="mlabel">MOD:</div>
+  <button class="mbtn active" id="btn-live" onclick="setMode('live')">⬤ CANLI API</button>
+  <button class="mbtn" id="btn-sim" onclick="setMode('sim')">◈ SİMÜLASYON</button>
+  <div id="mode-desc">Backend'e bağlanmaya çalışılıyor: <code>http://localhost:5055</code></div>
+  <span id="scan-countdown" style="font-size:9px;color:var(--dim);white-space:nowrap;margin-left:auto"></span>
+  <button id="scan-btn" onclick="triggerScan()">[ TARA ]</button>
+</div>
+
+<!-- GRID -->
+<div id="grid">
+
+  <!-- TL: FLIGHTS -->
+  <div class="pane">
+    <div class="ph">
+      <span style="color:var(--air)">✈</span>
+      <span class="pt air">FLIGHTRADAR // HAVA TRAFİĞİ</span>
+      <span class="pc" id="fc"></span>
+    </div>
+    <div class="pb">
+      <table>
+        <thead><tr>
+          <th>ICAO</th><th>HAVALİMANI</th><th>ÜLK</th>
+          <th class="r">BSLN</th><th class="r">GÜNCEL</th><th class="r">Δ%</th>
+          <th>TREND</th><th>Z</th><th>DURUM</th>
+        </tr></thead>
+        <tbody id="ftb"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TR: MAP -->
+  <div class="pane">
+    <div class="ph">
+      <span style="color:var(--dim)">◎</span>
+      <span class="pt map">GEOSPATİAL // CANLI HARİTA</span>
+      <span class="pc">
+        <span style="color:var(--air)">●</span> Havalimanı &nbsp;
+        <span style="color:var(--sea)">◆</span> Liman &nbsp;
+        <span style="color:var(--corr)">─ ─</span> Korelasyon
+      </span>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- BL: VESSELS -->
+  <div class="pane">
+    <div class="ph">
+      <span style="color:var(--sea)">⚓</span>
+      <span class="pt sea">MARINETRAFFIC // DENİZ TRAFİĞİ</span>
+      <span class="pc" id="vc"></span>
+    </div>
+    <div class="pb">
+      <table>
+        <thead><tr>
+          <th>LOCODE</th><th>LİMAN</th><th>ÜLK</th>
+          <th class="r">BSLN</th><th class="r">GÜNCEL</th><th class="r">Δ%</th>
+          <th>TREND</th><th>Z</th><th>DURUM</th>
+        </tr></thead>
+        <tbody id="vtb"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BR: CORRELATION -->
+  <div class="pane" id="corr-pane">
+    <div class="ph">
+      <span style="color:var(--corr)">⬡</span>
+      <span class="pt cor">ÇAPRAZ KORELASYON // BÖLGESEL ANOMALİ</span>
+      <span class="pc" id="cc-count"></span>
+    </div>
+    <div id="corp"></div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// SİMÜLASYON VERİLERİ — backend yokken devreye girer
+// ═══════════════════════════════════════════════════════
+const SIM_AIRPORTS = [
+  {icao:'LTFM',name:'İstanbul',country:'TR',lat:41.27,lon:28.74,baseline:420},
+  {icao:'LTBA',name:'İst. Sabiha',country:'TR',lat:40.90,lon:29.31,baseline:195},
+  {icao:'LTAI',name:'Antalya',country:'TR',lat:36.89,lon:30.79,baseline:220},
+  {icao:'LTBJ',name:'İzmir',country:'TR',lat:38.29,lon:27.15,baseline:145},
+  {icao:'OMDB',name:'Dubai Intl',country:'AE',lat:25.25,lon:55.36,baseline:680},
+  {icao:'OOMS',name:'Maskat',country:'OM',lat:23.59,lon:58.28,baseline:145},
+  {icao:'UUEE',name:'Moskova',country:'RU',lat:55.97,lon:37.41,baseline:290},
+  {icao:'URSS',name:'Soçi',country:'RU',lat:43.44,lon:39.94,baseline:88},
+  {icao:'LLBG',name:'Tel Aviv',country:'IL',lat:32.00,lon:34.88,baseline:210},
+  {icao:'OJAM',name:'Amman',country:'JO',lat:31.72,lon:35.99,baseline:95},
+  {icao:'ORBI',name:'Bağdat',country:'IQ',lat:33.26,lon:44.23,baseline:55},
+  {icao:'OIII',name:'Tahran',country:'IR',lat:35.69,lon:51.31,baseline:120},
+  {icao:'HECA',name:'Kahire',country:'EG',lat:30.12,lon:31.40,baseline:185},
+  {icao:'LGAV',name:'Atina',country:'GR',lat:37.94,lon:23.95,baseline:165},
+  {icao:'LCPH',name:'Lefkoşa',country:'CY',lat:34.87,lon:33.62,baseline:55},
+  {icao:'UKBB',name:'Kyiv',country:'UA',lat:50.34,lon:30.89,baseline:15},
+];
+const SIM_PORTS = [
+  {locode:'TRISA',name:'İstanbul Ambarlı',country:'TR',lat:40.97,lon:28.68,baseline:85},
+  {locode:'TRALI',name:'Aliağa/Nemrut',country:'TR',lat:38.83,lon:26.96,baseline:60},
+  {locode:'TRIZM',name:'İzmir',country:'TR',lat:38.43,lon:27.13,baseline:48},
+  {locode:'TRMRN',name:'Mersin',country:'TR',lat:36.79,lon:34.63,baseline:70},
+  {locode:'TRAYT',name:'Antalya',country:'TR',lat:36.84,lon:30.62,baseline:28},
+  {locode:'AEJEA',name:'Jebel Ali',country:'AE',lat:24.97,lon:55.06,baseline:220},
+  {locode:'AEFJR',name:'Fujairah',country:'AE',lat:25.11,lon:56.34,baseline:95},
+  {locode:'IRBND',name:'Bandar Abbas',country:'IR',lat:27.17,lon:56.28,baseline:110},
+  {locode:'IRKHK',name:'Kharg Term.',country:'IR',lat:29.24,lon:50.32,baseline:45},
+  {locode:'ILASH',name:'Aşdod',country:'IL',lat:31.82,lon:34.65,baseline:55},
+  {locode:'EGSOU',name:'Süveyş',country:'EG',lat:29.96,lon:32.55,baseline:180},
+  {locode:'EGALY',name:'İskenderiye',country:'EG',lat:31.19,lon:29.88,baseline:75},
+  {locode:'GRPIR',name:'Pire',country:'GR',lat:37.94,lon:23.63,baseline:120},
+  {locode:'CYLEM',name:'Limasol',country:'CY',lat:34.66,lon:33.04,baseline:35},
+  {locode:'RULIM',name:'Novorossiysk',country:'RU',lat:44.72,lon:37.79,baseline:90},
+  {locode:'RUULE',name:'Ust-Luga',country:'RU',lat:59.68,lon:28.42,baseline:65},
+];
+
+// Senaryo faktörleri — simülasyona gerçekçilik katar
+const SIM_SCENARIOS = [
+  {label:'Normal',                  desc:'Tüm sistemler nominal.',                                                      af:{},pf:{}},
+  {label:'Orta Doğu Gerilimi',      desc:'Tel Aviv/Aşdod çift düşüş. Kahire-İskenderiye pivot artışı.',               af:{LLBG:-.71,OJAM:.38,HECA:.22,ORBI:.15},pf:{ILASH:-.65,EGSOU:.28,EGALY:.32,TRMRN:.20}},
+  {label:'Rusya Yaptırımları',      desc:'Moskova/Ust-Luga çift düşüş. Türk limanları yükseliyor.',                   af:{UUEE:-.58,URSS:.75,UKBB:.10,LTFM:.12},pf:{RULIM:-.45,RUULE:-.62,TRMRN:.40,TRALI:.25}},
+  {label:'Hürmüz Ablukası',         desc:'Jebel Ali/Fujairah çöküş. Dubai havacılığı etkileniyor.',                   af:{OMDB:-.42,OOMS:-.30,OIII:.20},pf:{AEJEA:-.68,AEFJR:-.55,IRBND:.35,IRKHK:.60}},
+  {label:'Doğu Akdeniz Operasyonu', desc:'Kıbrıs-Yunanistan üçgeni: hava ve deniz eş zamanlı aktivasyon.',            af:{LCPH:.65,LGAV:.45,LTAI:.30},pf:{CYLEM:.70,GRPIR:.55,TRMRN:.42}},
+];
+let simScenario = 0;
+
+function simGen(scenario=0){
+  const S = SIM_SCENARIOS[scenario];
+  const ts = new Date().toISOString();
+  const flights = SIM_AIRPORTS.map(ap=>{
+    const f = (S.af[ap.icao]||0)+(Math.random()*.1-.05);
+    const cur = Math.max(0,Math.round(ap.baseline*(1+f)));
+    const dp = (cur-ap.baseline)/ap.baseline*100;
+    const az = Math.abs(dp)/15;
+    const sev = az>3?'critical':az>2?'warning':'ok';
+    const hist = Array.from({length:12},(_,i)=>Math.max(0,Math.round(ap.baseline*(1+f*(i/11)+(Math.random()*.06-.03)))));
+    return {...ap,current:cur,delta_pct:dp,anomaly:{severity:sev,zscore:dp/15,delta_pct:dp,baseline:ap.baseline,history:hist,message:`${dp>0?'+':''}${dp.toFixed(1)}%`},timestamp:ts};
+  });
+  const vessels = SIM_PORTS.map(pt=>{
+    const f = (S.pf[pt.locode]||0)+(Math.random()*.1-.05);
+    const cur = Math.max(0,Math.round(pt.baseline*(1+f)));
+    const dp = (cur-pt.baseline)/pt.baseline*100;
+    const az = Math.abs(dp)/15;
+    const sev = az>3?'critical':az>2?'warning':'ok';
+    const hist = Array.from({length:12},(_,i)=>Math.max(0,Math.round(pt.baseline*(1+f*(i/11)+(Math.random()*.06-.03)))));
+    return {...pt,current:cur,delta_pct:dp,anomaly:{severity:sev,zscore:dp/15,delta_pct:dp,baseline:pt.baseline,history:hist,message:`${dp>0?'+':''}${dp.toFixed(1)}%`},timestamp:ts};
+  });
+  const correlations = computeCorr(flights,vessels);
+  return {flights,vessels,correlations};
+}
+
+function haversine(la1,lo1,la2,lo2){
+  const R=6371,d2r=Math.PI/180;
+  const dlat=(la2-la1)*d2r,dlon=(lo2-lo1)*d2r;
+  const a=Math.sin(dlat/2)**2+Math.cos(la1*d2r)*Math.cos(la2*d2r)*Math.sin(dlon/2)**2;
+  return R*2*Math.asin(Math.sqrt(a));
+}
+function computeCorr(flights,vessels){
+  const af=flights.filter(f=>f.anomaly.severity!=='ok');
+  const av=vessels.filter(v=>v.anomaly.severity!=='ok');
+  const out=[];const seen=new Set();
+  af.forEach(ap=>{av.forEach(pt=>{
+    const d=haversine(ap.lat,ap.lon,pt.lat,pt.lon);
+    if(d>300)return;
+    const k=`${ap.icao}-${pt.locode}`;if(seen.has(k))return;seen.add(k);
+    const sd=(ap.anomaly.delta_pct>0&&pt.anomaly.delta_pct>0)||(ap.anomaly.delta_pct<0&&pt.anomaly.delta_pct<0);
+    const bhi=ap.anomaly.severity==='critical'&&pt.anomaly.severity==='critical';
+    out.push({
+      pair:k,
+      airport:{icao:ap.icao,name:ap.name,delta_pct:ap.anomaly.delta_pct},
+      port:{locode:pt.locode,name:pt.name,delta_pct:pt.anomaly.delta_pct},
+      distance_km:Math.round(d),
+      strength:bhi?'high':'medium',
+      same_direction:sd,
+      type:sd?'PARALEL ANOMALİ':'PİVOT KAYMA',
+      interpretation:sd
+        ?`Her iki node aynı anda ${ap.anomaly.delta_pct>0?'artış':'düşüş'} gösteriyor. Bölgesel kapanma/açılım sinyali.`
+        :`Hava ${ap.anomaly.delta_pct>0?'artarken':'düşerken'} deniz ${pt.anomaly.delta_pct>0?'artıyor':'düşüyor'}. Domain arası trafik kayması.`,
+    });
+  })});
+  return out.sort((a,b)=>a.distance_km-b.distance_km);
+}
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let mode='sim'; // 'live' veya 'sim'
+let liveOk=false;
+let currentData={flights:[],vessels:[],correlations:[]};
+let map=null;
+let airLayers={},seaLayers={},corrLines=[];
+const BACKEND='http://localhost:5055';
+
+// ═══════════════════════════════════════════════════════
+// BACKEND BAĞLANTISI
+// ═══════════════════════════════════════════════════════
+async function fetchLive(){
+  try{
+    const [fr,vr,cr]=await Promise.all([
+      fetch(BACKEND+'/api/flights',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()),
+      fetch(BACKEND+'/api/vessels',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()),
+      fetch(BACKEND+'/api/correlation',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()),
+    ]);
+    liveOk=true;
+    updateSrcBadges(true);
+    return {flights:fr.data,vessels:vr.data,correlations:cr.data};
+  }catch(e){
+    liveOk=false;
+    updateSrcBadges(false);
+    return null;
+  }
+}
+
+async function triggerScan(){
+  if(mode==='live'){
+    const btn=document.getElementById('scan-btn');
+    btn.disabled=true;btn.textContent='[ TARANIYOR... ]';
+    try{await fetch(BACKEND+'/api/scan',{method:'POST',signal:AbortSignal.timeout(3000)})}catch(e){}
+    setTimeout(()=>{refreshData();btn.disabled=false;btn.textContent='[ TARA ]';},2000);
+  }else{
+    const btn=document.getElementById('scan-btn');
+    btn.disabled=true;btn.textContent='[ TARANIYOR... ]';
+    setTimeout(()=>{refreshData();btn.disabled=false;btn.textContent='[ TARA ]';},800);
+  }
+}
+
+function setMode(m){
+  mode=m;
+  document.querySelectorAll('.mbtn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+m).classList.add('active');
+  if(m==='live'){
+    document.getElementById('mode-desc').innerHTML='Backend: <code>http://localhost:5055</code> — Python scriptini çalıştır';
+  }else{
+    const s=SIM_SCENARIOS[simScenario];
+    document.getElementById('mode-desc').textContent=`SİM: ${s.label} — ${s.desc}`;
+  }
+  refreshData();
+}
+
+// Senaryo seçici (simülasyon modunda)
+function nextScenario(){
+  simScenario=(simScenario+1)%SIM_SCENARIOS.length;
+  const s=SIM_SCENARIOS[simScenario];
+  document.getElementById('mode-desc').textContent=`SİM: ${s.label} — ${s.desc}`;
+  refreshData();
+}
+
+// ═══════════════════════════════════════════════════════
+// KAYNAK BADGELERİ
+// ═══════════════════════════════════════════════════════
+function updateSrcBadges(live){
+  const os=document.getElementById('badge-opensky');
+  const ah=document.getElementById('badge-aishub');
+  const mt=document.getElementById('badge-mt');
+  if(live){
+    os.className='src-badge live';os.textContent='✈ OPENSKY ●';
+    ah.className='src-badge sim';ah.textContent='⚓ AISHUB (key?)';
+    mt.className='src-badge sim';mt.textContent='⚓ MT (key?)';
+  }else{
+    os.className='src-badge sim';os.textContent='✈ OPENSKY (sim)';
+    ah.className='src-badge off';ah.textContent='⚓ AISHUB (kapalı)';
+    mt.className='src-badge off';mt.textContent='⚓ MT (kapalı)';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// HARİTA
+// ═══════════════════════════════════════════════════════
+function initMap(){
+  map=L.map('map',{center:[36,40],zoom:4,zoomControl:true,attributionControl:true});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:18,minZoom:2,
+    attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+}
+
+function severityColor(sev,domain){
+  if(sev==='critical') return '#ff2244';
+  if(sev==='warning')  return '#ffaa00';
+  return domain==='air'?'#00e5ff':'#00ff9d';
+}
+
+function updateMap(flights,vessels,corrs){
+  Object.values(airLayers).forEach(m=>map.removeLayer(m));
+  Object.values(seaLayers).forEach(m=>map.removeLayer(m));
+  corrLines.forEach(l=>map.removeLayer(l));
+  airLayers={};seaLayers={};corrLines=[];
+
+  flights.forEach(ap=>{
+    const sev=ap.anomaly?.severity||'ok';
+    const c=severityColor(sev,'air');
+    const sz=sev==='critical'?15:sev==='warning'?12:9;
+    const pulse=sev!=='ok'?`<div style="position:absolute;inset:-6px;border-radius:50%;border:1.5px solid ${c};opacity:.35;animation:pulse 1.8s infinite"></div>`:'';
+    const icon=L.divIcon({className:'',html:`<div style="position:relative;width:${sz}px;height:${sz}px">${pulse}<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${c}25;border:2px solid ${c};box-shadow:0 0 ${sev==='critical'?12:6}px ${c}80"></div></div>`,iconSize:[sz+12,sz+12],iconAnchor:[(sz+12)/2,(sz+12)/2]});
+    const dp=ap.anomaly?.delta_pct||0;
+    const marker=L.marker([ap.lat,ap.lon],{icon}).addTo(map).bindPopup(`<div class="mtt"><b style="color:${c}">✈ ${ap.icao}</b> — ${ap.name}<br>Güncel: <b style="color:${c}">${ap.current}</b> uçuş &nbsp; Baseline: ${ap.anomaly?.baseline||'?'}<br>Δ: <b style="color:${dp>0?'#00ff88':'#ff2244'}">${dp>0?'+':''}${dp.toFixed(1)}%</b> &nbsp; Z: ${ap.anomaly?.zscore?.toFixed(2)||'—'}<br>Durum: <b style="color:${c}">${sev.toUpperCase()}</b></div>`,{className:''});
+    airLayers[ap.icao]=marker;
+  });
+
+  vessels.forEach(pt=>{
+    const sev=pt.anomaly?.severity||'ok';
+    const c=severityColor(sev,'sea');
+    const sz=sev==='critical'?14:sev==='warning'?11:8;
+    const rot=`transform:rotate(45deg)`;
+    const pulse=sev!=='ok'?`<div style="position:absolute;inset:-6px;border:1.5px solid ${c};opacity:.3;animation:pulse 2s infinite"></div>`:'';
+    const icon=L.divIcon({className:'',html:`<div style="position:relative;width:${sz+12}px;height:${sz+12}px">${pulse}<div style="position:absolute;top:6px;left:6px;width:${sz}px;height:${sz}px;background:${c}22;border:2px solid ${c};${rot};box-shadow:0 0 ${sev==='critical'?10:5}px ${c}80"></div></div>`,iconSize:[sz+12,sz+12],iconAnchor:[(sz+12)/2,(sz+12)/2]});
+    const dp=pt.anomaly?.delta_pct||0;
+    const marker=L.marker([pt.lat,pt.lon],{icon}).addTo(map).bindPopup(`<div class="mtt"><b style="color:${c}">⚓ ${pt.locode}</b> — ${pt.name}<br>Güncel: <b style="color:${c}">${pt.current}</b> gemi &nbsp; Baseline: ${pt.anomaly?.baseline||'?'}<br>Δ: <b style="color:${dp>0?'#00ff88':'#ff2244'}">${dp>0?'+':''}${dp.toFixed(1)}%</b> &nbsp; Z: ${pt.anomaly?.zscore?.toFixed(2)||'—'}<br>Durum: <b style="color:${c}">${sev.toUpperCase()}</b></div>`,{className:''});
+    seaLayers[pt.locode]=marker;
+  });
+
+  // Korelasyon çizgileri
+  const anomAir=flights.filter(f=>f.anomaly?.severity!=='ok');
+  const anomSea=vessels.filter(v=>v.anomaly?.severity!=='ok');
+  anomAir.forEach(ap=>{anomSea.forEach(pt=>{
+    const d=haversine(ap.lat,ap.lon,pt.lat,pt.lon);
+    if(d>300)return;
+    const apDp=ap.anomaly?.delta_pct||0,ptDp=pt.anomaly?.delta_pct||0;
+    const sd=(apDp>0&&ptDp>0)||(apDp<0&&ptDp<0);
+    const col=sd?'#dd88ff':'#ffaa00';
+    const l=L.polyline([[ap.lat,ap.lon],[pt.lat,pt.lon]],{color:col,weight:1.5,opacity:.65,dashArray:'6,4'}).addTo(map);
+    corrLines.push(l);
+  })});
+}
+
+// ═══════════════════════════════════════════════════════
+// SPARKLINE
+// ═══════════════════════════════════════════════════════
+function spark(data,col){
+  if(!data||!data.length)return`<svg width="58" height="18"></svg>`;
+  const W=58,H=18,mx=Math.max(...data),mn=Math.min(...data),rng=mx-mn||1;
+  const pts=data.map((v,i)=>`${(i/(data.length-1))*W},${H-((v-mn)/rng)*H}`).join(' ');
+  const lx=W,ly=H-((data[data.length-1]-mn)/rng)*H;
+  return`<svg width="${W}" height="${H}"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" opacity=".9"/><circle cx="${lx}" cy="${ly}" r="2.2" fill="${col}"/></svg>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// TABLOLAR
+// ═══════════════════════════════════════════════════════
+function renderFlights(data){
+  const tb=document.getElementById('ftb');tb.innerHTML='';
+  let an=0;
+  data.forEach(ap=>{
+    const sev=ap.anomaly?.severity||'ok';
+    if(sev!=='ok')an++;
+    const c=severityColor(sev,'air');
+    const dp=ap.anomaly?.delta_pct||0;
+    const dCls=dp>1?'du':dp<-1?'dd':'dn';
+    const dSign=dp>0?'+':'';
+    const zVal=ap.anomaly?.zscore;
+    const hist=ap.anomaly?.history||[ap.current];
+    const tr=document.createElement('tr');
+    tr.className=sev==='critical'?'rc':sev==='warning'?'rw':'';
+    tr.innerHTML=`
+      <td style="color:${c};font-weight:bold">${ap.icao}</td>
+      <td style="color:var(--text)">${ap.name}</td>
+      <td style="color:var(--dim)">${ap.country}</td>
+      <td class="r" style="color:var(--dim)">${ap.anomaly?.baseline||ap.current}</td>
+      <td class="r" style="color:${c};font-weight:${sev!=='ok'?'bold':'normal'}">${ap.current}</td>
+      <td class="r"><span class="${dCls}">${dSign}${dp.toFixed(1)}%</span></td>
+      <td>${spark(hist,c)}</td>
+      <td class="r" style="color:${Math.abs(zVal||0)>3?'var(--crit)':Math.abs(zVal||0)>2?'var(--warn)':'var(--dim)'}">${zVal!=null?zVal.toFixed(2):'—'}</td>
+      <td>${sev==='critical'?`<span class="sc">◉ KRİTİK</span>`:sev==='warning'?`<span class="sw">⚠ UYARI</span>`:`<span class="so">● NRM</span>`}</td>
+    `;
+    tr.onclick=()=>{
+      document.querySelectorAll('#ftb tr').forEach(r=>r.classList.remove('sel'));
+      tr.classList.add('sel');
+      airLayers[ap.icao]?.openPopup();
+      map.panTo([ap.lat,ap.lon]);
+    };
+    tb.appendChild(tr);
+  });
+  document.getElementById('fc').textContent=`${data.length} HAVALİMANI | ${an} ANOMALİ`;
+}
+
+function renderVessels(data){
+  const tb=document.getElementById('vtb');tb.innerHTML='';
+  let an=0;
+  data.forEach(pt=>{
+    const sev=pt.anomaly?.severity||'ok';
+    if(sev!=='ok')an++;
+    const c=severityColor(sev,'sea');
+    const dp=pt.anomaly?.delta_pct||0;
+    const dCls=dp>1?'du':dp<-1?'dd':'dn';
+    const dSign=dp>0?'+':'';
+    const zVal=pt.anomaly?.zscore;
+    const hist=pt.anomaly?.history||[pt.current];
+    const tr=document.createElement('tr');
+    tr.className=sev==='critical'?'rc':sev==='warning'?'rw':'';
+    tr.innerHTML=`
+      <td style="color:${c};font-weight:bold">${pt.locode}</td>
+      <td style="color:var(--text)">${pt.name}</td>
+      <td style="color:var(--dim)">${pt.country}</td>
+      <td class="r" style="color:var(--dim)">${pt.anomaly?.baseline||pt.current}</td>
+      <td class="r" style="color:${c};font-weight:${sev!=='ok'?'bold':'normal'}">${pt.current}</td>
+      <td class="r"><span class="${dCls}">${dSign}${dp.toFixed(1)}%</span></td>
+      <td>${spark(hist,c)}</td>
+      <td class="r" style="color:${Math.abs(zVal||0)>3?'var(--crit)':Math.abs(zVal||0)>2?'var(--warn)':'var(--dim)'}">${zVal!=null?zVal.toFixed(2):'—'}</td>
+      <td>${sev==='critical'?`<span class="sc">◉ KRİTİK</span>`:sev==='warning'?`<span class="sw">⚠ UYARI</span>`:`<span class="so">● NRM</span>`}</td>
+    `;
+    tr.onclick=()=>{
+      document.querySelectorAll('#vtb tr').forEach(r=>r.classList.remove('sel'));
+      tr.classList.add('sel');
+      seaLayers[pt.locode]?.openPopup();
+      map.panTo([pt.lat,pt.lon]);
+    };
+    tb.appendChild(tr);
+  });
+  document.getElementById('vc').textContent=`${data.length} LİMAN | ${an} ANOMALİ`;
+}
+
+function renderCorr(data){
+  const body=document.getElementById('corp');
+  body.innerHTML='';
+  if(!data||!data.length){
+    body.innerHTML=`<div class="no-corr">
+      Şu an korelasyon yok.<br><br>
+      <span style="color:var(--dimmer)">300 km içindeki havalimanı-liman çiftlerinde<br>eş zamanlı anomali oluştuğunda burada görünür.</span>
+    </div>`;
+    document.getElementById('cc-count').textContent='';
+  }else{
+    data.forEach(c=>{
+      const div=document.createElement('div');
+      div.className=`cc ${c.strength==='high'?'hi':c.strength==='medium'?'md':'lo'}`;
+      const apDp=c.airport.delta_pct,ptDp=c.port.delta_pct;
+      div.innerHTML=`
+        <div class="ct">${c.strength==='high'?'◉':c.strength==='medium'?'⚡':'◈'} ${c.type} — ${c.airport.icao} ↔ ${c.port.locode}</div>
+        <div class="cb">${c.interpretation}</div>
+        <div class="cm">
+          <span style="color:var(--air)">✈ ${c.airport.name}</span>: <span class="${apDp>0?'du':'dd'}">${apDp>0?'+':''}${apDp.toFixed(1)}%</span>
+          &nbsp;|&nbsp;
+          <span style="color:var(--sea)">⚓ ${c.port.name}</span>: <span class="${ptDp>0?'du':'dd'}">${ptDp>0?'+':''}${ptDp.toFixed(1)}%</span>
+          &nbsp;&nbsp;<span style="color:var(--ok)">↔ ${c.distance_km} km</span>
+        </div>
+      `;
+      body.appendChild(div);
+    });
+    const note=document.createElement('div');
+    note.className='method-box';
+    note.innerHTML=`<span>ANOMALİ METODOLOJİSİ</span><br>
+▸ Haversine ≤ 300 km eşiği<br>
+▸ Z-score: |z|>2.0 uyarı · |z|>3.0 kritik (30 günlük rolling baseline)<br>
+▸ Paralel anomali: aynı yön → bölgesel kapanma/açılım<br>
+▸ Pivot kayma: ters yön → domain arası trafik transferi`;
+    body.appendChild(note);
+    document.getElementById('cc-count').textContent=`${data.length} KORELASYON`;
+  }
+}
+
+function updateBadges(flights,vessels,corrs){
+  const critF=flights.filter(f=>f.anomaly?.severity==='critical').length;
+  const critV=vessels.filter(v=>v.anomaly?.severity==='critical').length;
+  const warnF=flights.filter(f=>f.anomaly?.severity==='warning').length;
+  const warnV=vessels.filter(v=>v.anomaly?.severity==='warning').length;
+  const totCrit=critF+critV,totWarn=warnF+warnV;
+  const bc=document.getElementById('ab-crit'),bw=document.getElementById('ab-warn'),br=document.getElementById('ab-corr');
+  if(totCrit>0){bc.style.display='';bc.textContent=`◉ KRİTİK: ${totCrit}`}else bc.style.display='none';
+  if(totWarn>0){bw.style.display='';bw.textContent=`⚠ UYARI: ${totWarn}`}else bw.style.display='none';
+  if(corrs.length>0){br.style.display='';br.textContent=`⬡ KORELASYON: ${corrs.length}`}else br.style.display='none';
+  const dot=document.getElementById('status-dot');
+  dot.className=`dot ${totCrit>0?'crit':totWarn>0?'warn':'ok'}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// ANA GÜNCELLEME DÖNGÜSÜ
+// ═══════════════════════════════════════════════════════
+async function refreshData(){
+  let data=null;
+  if(mode==='live'){
+    data=await fetchLive();
+    if(!data){
+      document.getElementById('mode-desc').innerHTML='⚠ Backend bağlanamadı — simülasyona geçiliyor. Python: <code>python osint_backend.py</code>';
+      data=simGen(simScenario);
+    }
+  }else{
+    data=simGen(simScenario);
+  }
+  currentData=data;
+  renderFlights(data.flights);
+  renderVessels(data.vessels);
+  renderCorr(data.correlations);
+  updateMap(data.flights,data.vessels,data.correlations);
+  updateBadges(data.flights,data.vessels,data.correlations);
+}
+
+// ═══════════════════════════════════════════════════════
+// SENARYO KLAVYE KISAYOLU (simülasyon modunda)
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown',e=>{
+  if(mode==='sim'&&e.key>='0'&&e.key<='4'){
+    simScenario=parseInt(e.key);
+    const s=SIM_SCENARIOS[simScenario];
+    document.getElementById('mode-desc').textContent=`SIM: ${s.label} — ${s.desc}`;
+    refreshData();
+  }
+});
+
+// ── UTC SAAT ──
+function tick(){
+  document.getElementById('utc').textContent=new Date().toUTCString().replace('GMT','UTC');
+}
+
+// ── BAŞLANGIÇ ──
+window.addEventListener('DOMContentLoaded',()=>{
+  initMap();
+  updateSrcBadges(false);
+  // Canlı mod dene, başarısız olursa sim
+  fetchLive().then(data=>{
+    if(data){
+      mode='live';
+      document.getElementById('btn-live').classList.add('active');
+      document.getElementById('btn-sim').classList.remove('active');
+      document.getElementById('mode-desc').innerHTML='✓ Backend bağlandı: <code>http://localhost:5055</code>';
+      currentData=data;
+      renderFlights(data.flights);renderVessels(data.vessels);renderCorr(data.correlations);
+      updateMap(data.flights,data.vessels,data.correlations);updateBadges(data.flights,data.vessels,data.correlations);
+    }else{
+      refreshData();
+    }
+  });
+  tick();setInterval(tick,1000);
+
+  // 20 dakikada bir otomatik tarama — 100/gün sınırı koruması
+  const SCAN_INTERVAL = 20 * 60 * 1000;
+  let nextScanAt = Date.now() + SCAN_INTERVAL;
+
+  setInterval(()=>{
+    const rem = Math.max(0, nextScanAt - Date.now());
+    const m = Math.floor(rem/60000);
+    const s = Math.floor((rem%60000)/1000);
+    const cd = document.getElementById('scan-countdown');
+    if(cd) cd.textContent = `Sonraki tarama: ${m}d ${s.toString().padStart(2,'0')}s`;
+  }, 1000);
+
+  setInterval(()=>{
+    nextScanAt = Date.now() + SCAN_INTERVAL;
+    if(mode==='live') refreshData();
+  }, SCAN_INTERVAL);
+});
+</script>
+</body>
+</html>

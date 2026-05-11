@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>OSINT-INT // UNIFIED DOMAIN MONITOR</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #03080f;
+    --bg2: #050d18;
+    --bg3: #071425;
+    --border: #0e2a45;
+    --border2: #1a4060;
+    --air: #00c8ff;
+    --air-dim: #005a75;
+    --sea: #00e5a0;
+    --sea-dim: #005a3a;
+    --crit: #ff3a3a;
+    --warn: #ffb800;
+    --ok: #2aff8a;
+    --text: #a8d4f0;
+    --text-dim: #2a5070;
+    --corr: #c87aff;
+    --corr-dim: #3a1060;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── HEADER ── */
+  #header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1000;
+  }
+  #header .logo {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.2em;
+    color: var(--text);
+  }
+  #header .logo span.air { color: var(--air); }
+  #header .logo span.sea { color: var(--sea); }
+  #header .logo span.corr { color: var(--corr); }
+  .pulse-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+    animation: pulse 2s infinite;
+    flex-shrink: 0;
+  }
+  .badges { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+  .badge {
+    padding: 2px 9px;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    border: 1px solid;
+    font-family: 'Share Tech Mono', monospace;
+  }
+  .badge.crit { border-color: var(--crit); color: var(--crit); background: rgba(255,58,58,0.08); }
+  .badge.warn { border-color: var(--warn); color: var(--warn); background: rgba(255,184,0,0.08); }
+  .badge.corr { border-color: var(--corr); color: var(--corr); background: rgba(200,122,255,0.08); }
+  #utc { font-size: 9px; color: var(--text-dim); white-space: nowrap; }
+
+  /* ── SCENARIO BAR ── */
+  #scenario-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    flex-shrink: 0;
+  }
+  #scenario-bar .label { font-size: 9px; color: var(--text-dim); letter-spacing: 0.12em; margin-right: 8px; white-space: nowrap; }
+  .scen-btn {
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .scen-btn:hover { border-color: var(--border2); color: var(--text); }
+  .scen-btn.active { border-color: var(--air); color: var(--air); background: rgba(0,200,255,0.07); }
+  .scen-btn.active.sea-theme { border-color: var(--sea); color: var(--sea); background: rgba(0,229,160,0.07); }
+  .scen-btn.active.both-theme { border-color: var(--corr); color: var(--corr); background: rgba(200,122,255,0.07); }
+  #scen-desc {
+    margin-left: 12px;
+    font-size: 9px;
+    color: var(--text-dim);
+    font-style: italic;
+    flex: 1;
+  }
+  #refresh-btn {
+    padding: 4px 14px;
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--air);
+    cursor: pointer;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    transition: all 0.2s;
+  }
+  #refresh-btn:hover { background: rgba(0,200,255,0.1); }
+  #refresh-btn:disabled { color: var(--warn); cursor: not-allowed; }
+
+  /* ── MAIN LAYOUT ── */
+  #main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1px;
+    flex: 1;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .panel {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    flex-shrink: 0;
+  }
+  .panel-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+  }
+  .panel-title.air { color: var(--air); }
+  .panel-title.sea { color: var(--sea); }
+  .panel-title.map { color: var(--text); }
+  .panel-title.corr { color: var(--corr); }
+  .panel-count { font-size: 9px; color: var(--text-dim); margin-left: auto; }
+
+  /* ── MAP ── */
+  #map {
+    flex: 1;
+    background: #06101a;
+    position: relative;
+  }
+  .leaflet-container { background: #06101a !important; }
+  .leaflet-tile { filter: invert(0.9) hue-rotate(180deg) saturate(0.6) brightness(0.45); }
+  .leaflet-control-attribution { display: none; }
+
+  /* Custom markers */
+  .airport-marker, .port-marker, .corr-marker {
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px;
+    font-family: 'Share Tech Mono', monospace;
+    border: 1.5px solid;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  /* ── DATA TABLE PANEL ── */
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+  }
+  .panel-body::-webkit-scrollbar { width: 3px; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { position: sticky; top: 0; background: var(--bg2); z-index: 5; }
+  th {
+    padding: 4px 8px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th.r { text-align: right; }
+  td {
+    padding: 4px 8px;
+    font-size: 10px;
+    border-bottom: 1px solid rgba(14,42,69,0.5);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  td.r { text-align: right; }
+  tr.anomaly-crit { background: rgba(255,58,58,0.06); }
+  tr.anomaly-warn { background: rgba(255,184,0,0.05); }
+  tr:hover { background: rgba(255,255,255,0.03) !important; }
+  tr.selected { background: rgba(0,200,255,0.08) !important; }
+
+  .delta-up { color: #2aff8a; font-weight: bold; }
+  .delta-dn { color: #ff3a3a; font-weight: bold; }
+  .delta-ok { color: var(--text-dim); }
+  .status-crit { color: var(--crit); font-size: 9px; letter-spacing: 0.08em; }
+  .status-warn { color: var(--warn); font-size: 9px; letter-spacing: 0.08em; }
+  .status-ok   { color: var(--text-dim); font-size: 9px; }
+
+  /* ── CORRELATION PANEL ── */
+  #corr-panel .panel-body { padding: 8px; }
+  .corr-card {
+    border: 1px solid var(--corr-dim);
+    background: rgba(200,122,255,0.04);
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .corr-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--corr);
+  }
+  .corr-card.high::before { background: var(--crit); }
+  .corr-card.medium::before { background: var(--warn); }
+  .corr-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    color: var(--corr);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .corr-card.high .corr-title { color: var(--crit); }
+  .corr-card.medium .corr-title { color: var(--warn); }
+  .corr-body { color: var(--text); line-height: 1.7; font-size: 10px; }
+  .corr-meta { font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+  .corr-distance { color: var(--ok); }
+  .no-corr { color: var(--text-dim); text-align: center; padding: 30px 16px; line-height: 2; font-size: 10px; }
+
+  /* ── TOOLTIP ── */
+  .map-tooltip {
+    background: rgba(3,8,15,0.95);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    padding: 6px 10px;
+    border-radius: 0;
+    min-width: 160px;
+    white-space: nowrap;
+  }
+  .leaflet-popup-content-wrapper { border-radius: 0 !important; padding: 0 !important; }
+  .leaflet-popup-content { margin: 0 !important; }
+  .leaflet-popup-tip-container { display: none; }
+
+  /* ── SCANLINE ── */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,180,255,0.012) 2px, rgba(0,180,255,0.012) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── SPARKLINE SVG ── */
+  .spark { display: block; }
+
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes scanning { 0%{opacity:0.4} 50%{opacity:1} 100%{opacity:0.4} }
+  .scanning-anim { animation: scanning 0.8s infinite; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <div class="pulse-dot" id="status-dot"></div>
+  <div class="logo">OSINT<span class="air">·AIR</span> + <span class="sea">SEA</span> // <span class="corr">UNIFIED</span></div>
+  <div class="badges">
+    <span class="badge crit" id="badge-crit" style="display:none"></span>
+    <span class="badge warn" id="badge-warn" style="display:none"></span>
+    <span class="badge corr" id="badge-corr" style="display:none"></span>
+  </div>
+  <div id="utc"></div>
+</div>
+
+<!-- SCENARIO BAR -->
+<div id="scenario-bar">
+  <div class="label">SENARYO:</div>
+  <button class="scen-btn active" data-scen="0" onclick="selectScenario(0)">0 — Normal</button>
+  <button class="scen-btn" data-scen="1" onclick="selectScenario(1)">1 — Orta Doğu Gerilimi</button>
+  <button class="scen-btn" data-scen="2" onclick="selectScenario(2)">2 — Rusya Yaptırımları</button>
+  <button class="scen-btn" data-scen="3" onclick="selectScenario(3)">3 — Körfez Deniz Ablukası</button>
+  <button class="scen-btn" data-scen="4" onclick="selectScenario(4)">4 — Doğu Akdeniz Krizi</button>
+  <div id="scen-desc">Tüm sistemler normal — anomali tespit edilmedi</div>
+  <button id="refresh-btn" onclick="refreshData()">[ YENİLE ]</button>
+</div>
+
+<!-- MAIN GRID -->
+<div id="main">
+
+  <!-- TOP-LEFT: FLIGHT -->
+  <div class="panel" id="flight-panel">
+    <div class="panel-header">
+      <span style="color:var(--air)">✈</span>
+      <span class="panel-title air">FLIGHTRADAR24 — HAVA TRAFİĞİ</span>
+      <span class="panel-count" id="flight-count"></span>
+    </div>
+    <div class="panel-body">
+      <table>
+        <thead>
+          <tr>
+            <th>ICAO</th>
+            <th>HAVALİMANI</th>
+            <th>ÜLK</th>
+            <th class="r">BSLN</th>
+            <th class="r">GÜNCEL</th>
+            <th class="r">Δ%</th>
+            <th>TREND</th>
+            <th>DURUM</th>
+          </tr>
+        </thead>
+        <tbody id="flight-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TOP-RIGHT: MAP -->
+  <div class="panel" id="map-panel">
+    <div class="panel-header">
+      <span style="color:var(--text-dim)">◎</span>
+      <span class="panel-title map">GEOSPATİAL — CANLI HARİTA</span>
+      <span style="font-size:9px;color:var(--text-dim);margin-left:auto">
+        <span style="color:var(--air)">✈</span> Havalimanı &nbsp;
+        <span style="color:var(--sea)">⚓</span> Liman &nbsp;
+        <span style="color:var(--corr)">⬡</span> Korelasyon
+      </span>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- BOTTOM-LEFT: MARINE -->
+  <div class="panel" id="marine-panel">
+    <div class="panel-header">
+      <span style="color:var(--sea)">⚓</span>
+      <span class="panel-title sea">MARINETRAFFIC — DENİZ TRAFİĞİ</span>
+      <span class="panel-count" id="marine-count"></span>
+    </div>
+    <div class="panel-body">
+      <table>
+        <thead>
+          <tr>
+            <th>LOCODE</th>
+            <th>LİMAN</th>
+            <th>ÜLK</th>
+            <th class="r">BSLN</th>
+            <th class="r">GÜNCEL</th>
+            <th class="r">Δ%</th>
+            <th>TREND</th>
+            <th>DURUM</th>
+          </tr>
+        </thead>
+        <tbody id="marine-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BOTTOM-RIGHT: CORRELATION -->
+  <div class="panel" id="corr-panel">
+    <div class="panel-header">
+      <span style="color:var(--corr)">⬡</span>
+      <span class="panel-title corr">ÇAPRAZ KORELASYON — BÖLGESEL ANOMALİ</span>
+      <span class="panel-count" id="corr-count"></span>
+    </div>
+    <div class="panel-body" id="corr-body">
+      <div class="no-corr">Senaryo seçin veya veri yenileyin.<br>Coğrafi olarak yakın havalimanı-liman çiftlerinde<br>eş zamanlı anomali tespit edilirse burada görünür.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// DATA LAYER
+// ═══════════════════════════════════════════════
+
+const AIRPORTS = [
+  { icao:'LTFM', name:'İstanbul',    country:'TR', lat:41.27, lon:28.74,  normal:420, region:'marmara' },
+  { icao:'LTAC', name:'Ankara',      country:'TR', lat:40.12, lon:32.99,  normal:180, region:'ic_anadolu' },
+  { icao:'LTAI', name:'Antalya',     country:'TR', lat:36.89, lon:30.79,  normal:220, region:'akdeniz' },
+  { icao:'OMDB', name:'Dubai',       country:'AE', lat:25.25, lon:55.36,  normal:680, region:'korfez' },
+  { icao:'OOMS', name:'Maskat',      country:'OM', lat:23.59, lon:58.28,  normal:145, region:'korfez' },
+  { icao:'UUEE', name:'Moskova',     country:'RU', lat:55.97, lon:37.41,  normal:290, region:'rusya' },
+  { icao:'URSS', name:'Soçi',        country:'RU', lat:43.44, lon:39.94,  normal:88,  region:'rusya_guney' },
+  { icao:'LLBG', name:'Tel Aviv',    country:'IL', lat:32.00, lon:34.88,  normal:210, region:'levant' },
+  { icao:'OJAM', name:'Amman',       country:'JO', lat:31.72, lon:35.99,  normal:95,  region:'levant' },
+  { icao:'ORBI', name:'Bağdat',      country:'IQ', lat:33.26, lon:44.23,  normal:55,  region:'irak' },
+  { icao:'OIII', name:'Tahran',      country:'IR', lat:35.69, lon:51.31,  normal:120, region:'iran' },
+  { icao:'HECA', name:'Kahire',      country:'EG', lat:30.12, lon:31.40,  normal:185, region:'misir' },
+  { icao:'LGAV', name:'Atina',       country:'GR', lat:37.94, lon:23.95,  normal:165, region:'dogu_akdeniz' },
+  { icao:'LCPH', name:'Lefkoşa',     country:'CY', lat:34.87, lon:33.62,  normal:55,  region:'dogu_akdeniz' },
+  { icao:'UKBB', name:'Kyiv',        country:'UA', lat:50.34, lon:30.89,  normal:15,  region:'ukrayna' },
+];
+
+const PORTS = [
+  { locode:'TRISA', name:'İstanbul (Haydarpaşa)', country:'TR', lat:40.99, lon:29.01, normal:85,  region:'marmara',      type:'cargo' },
+  { locode:'TRALI', name:'Aliağa',                country:'TR', lat:38.83, lon:26.96, normal:60,  region:'ege',          type:'tanker' },
+  { locode:'TRMRN', name:'Mersin',                country:'TR', lat:36.79, lon:34.63, normal:70,  region:'akdeniz',      type:'cargo' },
+  { locode:'TRAYT', name:'Antalya Limanı',        country:'TR', lat:36.84, lon:30.62, normal:28,  region:'akdeniz',      type:'cruise' },
+  { locode:'AEJEA', name:'Jebel Ali',             country:'AE', lat:24.97, lon:55.06, normal:220, region:'korfez',       type:'cargo' },
+  { locode:'AEFJR', name:'Fujairah',              country:'AE', lat:25.11, lon:56.34, normal:95,  region:'korfez',       type:'tanker' },
+  { locode:'IRBND', name:'Bandar Abbas',          country:'IR', lat:27.17, lon:56.28, normal:110, region:'iran',         type:'cargo' },
+  { locode:'IRKHK', name:'Khark Terminali',       country:'IR', lat:29.24, lon:50.32, normal:45,  region:'iran',         type:'tanker' },
+  { locode:'ILASH', name:'Aşdod',                 country:'IL', lat:31.82, lon:34.65, normal:55,  region:'levant',       type:'cargo' },
+  { locode:'EGSOU', name:'Süveyş',                country:'EG', lat:29.96, lon:32.55, normal:180, region:'suez',         type:'transit' },
+  { locode:'EGALY', name:'İskenderiye',           country:'EG', lat:31.19, lon:29.88, normal:75,  region:'misir',        type:'cargo' },
+  { locode:'GRPIR', name:'Pire',                  country:'GR', lat:37.94, lon:23.63, normal:120, region:'dogu_akdeniz', type:'cargo' },
+  { locode:'RULIM', name:'Novorossiysk',          country:'RU', lat:44.72, lon:37.79, normal:90,  region:'karadeniz',    type:'tanker' },
+  { locode:'RUULE', name:'Ust-Luga',              country:'RU', lat:59.68, lon:28.42, normal:65,  region:'rusya',        type:'cargo' },
+  { locode:'CYLEM', name:'Limasol',               country:'CY', lat:34.66, lon:33.04, normal:35,  region:'dogu_akdeniz', type:'cargo' },
+];
+
+// Senaryo tanımları — her birinin hikayesi ve etkilediği düğümler
+const SCENARIOS = [
+  {
+    id: 0,
+    label: 'Normal',
+    desc: 'Tüm sistemler nominal — bölgesel baseline değerleri içinde seyrediyor.',
+    theme: '',
+    airports: {},
+    ports: {},
+    story: null,
+  },
+  {
+    id: 1,
+    label: 'Orta Doğu Gerilimi',
+    desc: 'İsrail-Lübnan hava sahası kısıtlamaları → Tel Aviv düşüşü, Amman-Kahire pivot artışı; Aşdod liman trafiği etkileniyor.',
+    theme: '',
+    airports: { LLBG:-0.71, OJAM:+0.38, HECA:+0.22, ORBI:+0.15, LTFM:-0.18 },
+    ports:    { ILASH:-0.65, EGSOU:+0.28, EGALY:+0.32, TRMRN:+0.20 },
+    story: [
+      { severity:'high', title:'HAVA-DENİZ KORELASYON: LEVANT', body:'Tel Aviv Havalimanı (LLBG) -71% düşüş ile Aşdod Limanı -65% düşüşü eş zamanlı tespit edildi. Mesafe: 28 km. Bölgesel çıkış kısıtlaması sinyali.', dist:28, airports:['LLBG'], ports:['ILASH'] },
+      { severity:'medium', title:'MISIR PİVOT ARTIŞI', body:'Kahire (HECA) +22% hava trafiği artışı ile İskenderiye Limanı +32% artışı aynı zaman diliminde. Mesafe: 180 km. Alternatif güzergah kullanımı.', dist:180, airports:['HECA'], ports:['EGALY'] },
+    ],
+  },
+  {
+    id: 2,
+    label: 'Rusya Yaptırımları',
+    desc: 'Batı yaptırımları genişliyor → Moskova-Novorossiysk hava/deniz trafiği aşağı; Soçi-Karadeniz anomali artışı.',
+    theme: '',
+    airports: { UUEE:-0.58, URSS:+0.75, UKBB:+0.10, LTFM:+0.12, LYBT:+0.30 },
+    ports:    { RULIM:-0.45, RUULE:-0.62, TRMRN:+0.40, TRALI:+0.25, GRPIR:+0.18 },
+    story: [
+      { severity:'high', title:'RUSYA ÇIKIŞI KAPANIYOR', body:'Moskova Sheremetyevo (UUEE) -58% düşüş, Ust-Luga limanı -62% düşüş. Batı yaptırımları kara ve hava trafiğini eş zamanlı kapatıyor. Transit ülkeler lehine kayma bekleniyor.', dist:650, airports:['UUEE'], ports:['RUULE'] },
+      { severity:'medium', title:'KARADENİZ TRANSIT KAYMA', body:'Novorossiysk -45% düşerken Mersin +40% artış kaydetti. Mesafe: 900 km. Rus emtia trafiğinin Türkiye üzerinden yönlendirildiğine dair sinyal.', dist:900, airports:['URSS'], ports:['RULIM','TRMRN'] },
+    ],
+  },
+  {
+    id: 3,
+    label: 'Körfez Deniz Ablukası',
+    desc: 'Hürmüz Boğazı geçişlerinde kısıtlama → Jebel Ali ve Fujairah trafik düşüşü; Dubai havacılığı etkileniyor.',
+    theme: 'sea-theme',
+    airports: { OMDB:-0.42, OOMS:-0.30, OIII:+0.20, ORBI:+0.18 },
+    ports:    { AEJEA:-0.68, AEFJR:-0.55, IRBND:+0.35, IRKHK:+0.60 },
+    story: [
+      { severity:'high', title:'HÜRMÜZ BOĞAZI — KRİTİK', body:'Fujairah (-55%) ve Jebel Ali (-68%) eş zamanlı çöküş. Dubai (OMDB) hava trafiği -42% geriledi. Mesafe: 130 km. Boğaz geçiş kısıtlaması her iki domain\'i birlikte vurdu.', dist:130, airports:['OMDB'], ports:['AEFJR','AEJEA'] },
+      { severity:'medium', title:'İRAN TRAFİK KAYIŞI', body:'Bandar Abbas (+35%) ve Khark Terminali (+60%) artışı. İran, Körfez\'den gelen akışı kendi limanlarına çekiyor. Tahran hava trafiği +20% eş zamanlı artış.', dist:250, airports:['OIII'], ports:['IRBND','IRKHK'] },
+    ],
+  },
+  {
+    id: 4,
+    label: 'Doğu Akdeniz Krizi',
+    desc: 'Doğu Akdeniz\'de deniz arama-kurtarma olayları → Kıbrıs, Atina, Mersin eş zamanlı hava-deniz anomalisi.',
+    theme: 'both-theme',
+    airports: { LCPH:+0.65, LGAV:+0.45, LTAI:+0.30, LTFM:+0.08, HECA:-0.15 },
+    ports:    { CYLEM:+0.70, GRPIR:+0.55, TRMRN:+0.42, TRALI:-0.10, EGALY:-0.20 },
+    story: [
+      { severity:'high', title:'KIBRIS-PİRE OPERASYONEL KAYMA', body:'Lefkoşa (LCPH) +65% hava artışı ile Limasol Limanı +70% deniz artışı. Mesafe: 38 km. Olağandışı askeri ve insani operasyon paterni. Pire de +55% deniz aktivitesi ile korelasyon gösteriyor.', dist:38, airports:['LCPH'], ports:['CYLEM'] },
+      { severity:'medium', title:'TÜRK AKDENİZ PIVOT', body:'Antalya havalimanı +30% artışı, Mersin limanı +42% artışı. Her iki node bölgesel kriz yükünü absorbe ediyor. Mesafe: 190 km.', dist:190, airports:['LTAI'], ports:['TRMRN'] },
+    ],
+  },
+];
+
+const SCENARIO_DESC = [
+  'Tüm sistemler normal — anomali tespit edilmedi.',
+  'İsrail hava sahası kısıtlaması → Levant\'ta hava-deniz çift anomali.',
+  'Rusya yaptırım genişlemesi → Karadeniz trafiği Türkiye\'ye pivot.',
+  'Hürmüz Boğazı geçiş kısıtlaması → Körfez deniz-hava çift çöküş.',
+  'Doğu Akdeniz kriz operasyonu → Kıbrıs-Yunanistan-Türkiye üçgeni aktivasyon.',
+];
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let currentScenario = 0;
+let flightData = [];
+let marineData = [];
+let corrData = [];
+let map = null;
+let airMarkers = {};
+let seaMarkers = {};
+let corrLines = [];
+let selectedFlight = null;
+let selectedMarine = null;
+
+// ═══════════════════════════════════════════════
+// DATA ENGINE
+// ═══════════════════════════════════════════════
+function applyScenario(scen) {
+  const S = SCENARIOS[scen];
+
+  flightData = AIRPORTS.map(ap => {
+    const factor = (S.airports[ap.icao] || 0) + (Math.random() * 0.08 - 0.04);
+    const current = Math.max(0, Math.round(ap.normal * (1 + factor)));
+    const delta = ((current - ap.normal) / ap.normal * 100);
+    const absDelta = Math.abs(delta);
+    const severity = absDelta > 40 ? 'crit' : absDelta > 20 ? 'warn' : 'ok';
+    const history = Array.from({length:10}, (_,i) => {
+      const frac = i/9;
+      const j = Math.random()*0.06-0.03;
+      return Math.max(0, Math.round(ap.normal * (1 + factor * frac + j)));
+    });
+    return { ...ap, current, delta, severity, history };
+  });
+
+  marineData = PORTS.map(pt => {
+    const factor = (S.ports[pt.locode] || 0) + (Math.random() * 0.08 - 0.04);
+    const current = Math.max(0, Math.round(pt.normal * (1 + factor)));
+    const delta = ((current - pt.normal) / pt.normal * 100);
+    const absDelta = Math.abs(delta);
+    const severity = absDelta > 40 ? 'crit' : absDelta > 20 ? 'warn' : 'ok';
+    const history = Array.from({length:10}, (_,i) => {
+      const frac = i/9;
+      const j = Math.random()*0.06-0.03;
+      return Math.max(0, Math.round(pt.normal * (1 + factor * frac + j)));
+    });
+    return { ...pt, current, delta, severity, history };
+  });
+
+  corrData = S.story || [];
+}
+
+// ═══════════════════════════════════════════════
+// MAP INIT
+// ═══════════════════════════════════════════════
+function initMap() {
+  map = L.map('map', {
+    center: [36, 38],
+    zoom: 4,
+    zoomControl: false,
+    attributionControl: false,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 10, minZoom: 3,
+  }).addTo(map);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+}
+
+function haversine(lat1,lon1,lat2,lon2) {
+  const R = 6371;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function updateMap() {
+  // Clear old
+  Object.values(airMarkers).forEach(m => map.removeLayer(m));
+  Object.values(seaMarkers).forEach(m => map.removeLayer(m));
+  corrLines.forEach(l => map.removeLayer(l));
+  airMarkers = {}; seaMarkers = {}; corrLines = [];
+
+  // Airport markers
+  flightData.forEach(ap => {
+    const colors = { crit:'#ff3a3a', warn:'#ffb800', ok:'#00c8ff' };
+    const c = colors[ap.severity];
+    const size = ap.severity === 'crit' ? 14 : ap.severity === 'warn' ? 12 : 10;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width:${size}px;height:${size}px;
+        border-radius:50%;
+        background:${c}22;
+        border:2px solid ${c};
+        box-shadow:0 0 ${ap.severity==='crit'?'10':'6'}px ${c};
+        position:relative;
+      ">
+        ${ap.severity!=='ok' ? `<div style="position:absolute;inset:-4px;border-radius:50%;border:1px solid ${c};opacity:0.4;animation:pulse 2s infinite"></div>` : ''}
+      </div>`,
+      iconSize: [size+8, size+8],
+      iconAnchor: [(size+8)/2, (size+8)/2],
+    });
+    const marker = L.marker([ap.lat, ap.lon], {icon})
+      .addTo(map)
+      .bindPopup(`<div class="map-tooltip">
+        <b style="color:var(--air)">✈ ${ap.icao}</b> — ${ap.name}<br>
+        Baseline: ${ap.normal} / Güncel: <b style="color:${colors[ap.severity]}">${ap.current}</b><br>
+        Δ: <b style="color:${ap.delta>0?'#2aff8a':'#ff3a3a'}">${ap.delta>0?'+':''}${ap.delta.toFixed(1)}%</b>
+      </div>`, {className:''});
+    airMarkers[ap.icao] = marker;
+  });
+
+  // Port markers (square-ish)
+  marineData.forEach(pt => {
+    const colors = { crit:'#ff3a3a', warn:'#ffb800', ok:'#00e5a0' };
+    const c = colors[pt.severity];
+    const size = pt.severity === 'crit' ? 13 : pt.severity === 'warn' ? 11 : 9;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        width:${size}px;height:${size}px;
+        background:${c}22;
+        border:2px solid ${c};
+        box-shadow:0 0 ${pt.severity==='crit'?'10':'5'}px ${c};
+        transform:rotate(45deg);
+        position:relative;
+      "></div>`,
+      iconSize: [size+8, size+8],
+      iconAnchor: [(size+8)/2, (size+8)/2],
+    });
+    const marker = L.marker([pt.lat, pt.lon], {icon})
+      .addTo(map)
+      .bindPopup(`<div class="map-tooltip">
+        <b style="color:var(--sea)">⚓ ${pt.locode}</b> — ${pt.name}<br>
+        Baseline: ${pt.normal} / Güncel: <b style="color:${colors[pt.severity]}">${pt.current}</b><br>
+        Δ: <b style="color:${pt.delta>0?'#2aff8a':'#ff3a3a'}">${pt.delta>0?'+':''}${pt.delta.toFixed(1)}%</b>
+      </div>`, {className:''});
+    seaMarkers[pt.locode] = marker;
+  });
+
+  // Correlation lines — nearby anomaly pairs
+  const anomalyAir = flightData.filter(a => a.severity !== 'ok');
+  const anomalySea = marineData.filter(p => p.severity !== 'ok');
+  anomalyAir.forEach(ap => {
+    anomalySea.forEach(pt => {
+      const dist = haversine(ap.lat, ap.lon, pt.lat, pt.lon);
+      if (dist < 300) {
+        const sameDir = (ap.delta > 0 && pt.delta > 0) || (ap.delta < 0 && pt.delta < 0);
+        const color = sameDir ? '#c87aff' : '#ffb800';
+        const line = L.polyline([[ap.lat, ap.lon],[pt.lat, pt.lon]], {
+          color, weight: 1.5, opacity: 0.6, dashArray: '5,4',
+        }).addTo(map);
+        corrLines.push(line);
+      }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════
+// SPARKLINE
+// ═══════════════════════════════════════════════
+function sparkline(data, color) {
+  const w = 60, h = 20;
+  const max = Math.max(...data), min = Math.min(...data);
+  const range = max - min || 1;
+  const pts = data.map((v,i) =>
+    `${(i/(data.length-1))*w},${h - ((v-min)/range)*h}`
+  ).join(' ');
+  return `<svg width="${w}" height="${h}" class="spark">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.9"/>
+    <circle cx="${w}" cy="${h - ((data[data.length-1]-min)/range)*h}" r="2" fill="${color}"/>
+  </svg>`;
+}
+
+// ═══════════════════════════════════════════════
+// RENDER TABLES
+// ═══════════════════════════════════════════════
+function renderFlights() {
+  const tbody = document.getElementById('flight-tbody');
+  tbody.innerHTML = '';
+  const airColor = { crit:'#ff3a3a', warn:'#ffb800', ok:'#00c8ff' };
+
+  flightData.forEach(ap => {
+    const c = airColor[ap.severity];
+    const dClass = ap.delta > 1 ? 'delta-up' : ap.delta < -1 ? 'delta-dn' : 'delta-ok';
+    const dSign = ap.delta > 0 ? '+' : '';
+    const statusHtml = ap.severity === 'crit'
+      ? '<span class="status-crit">◉ KRİTİK</span>'
+      : ap.severity === 'warn'
+      ? '<span class="status-warn">⚠ UYARI</span>'
+      : '<span class="status-ok">● NRM</span>';
+
+    const tr = document.createElement('tr');
+    tr.className = ap.severity === 'crit' ? 'anomaly-crit' : ap.severity === 'warn' ? 'anomaly-warn' : '';
+    tr.dataset.icao = ap.icao;
+    tr.innerHTML = `
+      <td style="color:${c};font-weight:bold">${ap.icao}</td>
+      <td style="color:var(--text)">${ap.name}</td>
+      <td style="color:var(--text-dim)">${ap.country}</td>
+      <td class="r" style="color:var(--text-dim)">${ap.normal}</td>
+      <td class="r" style="color:${c};font-weight:${ap.severity!=='ok'?'bold':'normal'}">${ap.current}</td>
+      <td class="r"><span class="${dClass}">${dSign}${ap.delta.toFixed(1)}%</span></td>
+      <td>${sparkline(ap.history, c)}</td>
+      <td>${statusHtml}</td>
+    `;
+    tr.onclick = () => {
+      document.querySelectorAll('#flight-tbody tr').forEach(r=>r.classList.remove('selected'));
+      tr.classList.add('selected');
+      if(airMarkers[ap.icao]) airMarkers[ap.icao].openPopup();
+    };
+    tbody.appendChild(tr);
+  });
+
+  const anomCount = flightData.filter(a=>a.severity!=='ok').length;
+  document.getElementById('flight-count').textContent = `${flightData.length} HAVALİMANI | ${anomCount} ANOMALİ`;
+}
+
+function renderMarine() {
+  const tbody = document.getElementById('marine-tbody');
+  tbody.innerHTML = '';
+  const seaColor = { crit:'#ff3a3a', warn:'#ffb800', ok:'#00e5a0' };
+
+  marineData.forEach(pt => {
+    const c = seaColor[pt.severity];
+    const dClass = pt.delta > 1 ? 'delta-up' : pt.delta < -1 ? 'delta-dn' : 'delta-ok';
+    const dSign = pt.delta > 0 ? '+' : '';
+    const statusHtml = pt.severity === 'crit'
+      ? '<span class="status-crit">◉ KRİTİK</span>'
+      : pt.severity === 'warn'
+      ? '<span class="status-warn">⚠ UYARI</span>'
+      : '<span class="status-ok">● NRM</span>';
+
+    const tr = document.createElement('tr');
+    tr.className = pt.severity === 'crit' ? 'anomaly-crit' : pt.severity === 'warn' ? 'anomaly-warn' : '';
+    tr.innerHTML = `
+      <td style="color:${c};font-weight:bold">${pt.locode}</td>
+      <td style="color:var(--text)">${pt.name}</td>
+      <td style="color:var(--text-dim)">${pt.country}</td>
+      <td class="r" style="color:var(--text-dim)">${pt.normal}</td>
+      <td class="r" style="color:${c};font-weight:${pt.severity!=='ok'?'bold':'normal'}">${pt.current}</td>
+      <td class="r"><span class="${dClass}">${dSign}${pt.delta.toFixed(1)}%</span></td>
+      <td>${sparkline(pt.history, c)}</td>
+      <td>${statusHtml}</td>
+    `;
+    tr.onclick = () => {
+      document.querySelectorAll('#marine-tbody tr').forEach(r=>r.classList.remove('selected'));
+      tr.classList.add('selected');
+      if(seaMarkers[pt.locode]) seaMarkers[pt.locode].openPopup();
+    };
+    tbody.appendChild(tr);
+  });
+
+  const anomCount = marineData.filter(p=>p.severity!=='ok').length;
+  document.getElementById('marine-count').textContent = `${marineData.length} LİMAN | ${anomCount} ANOMALİ`;
+}
+
+function renderCorrelation() {
+  const body = document.getElementById('corr-body');
+  if (corrData.length === 0) {
+    body.innerHTML = `<div class="no-corr">
+      ✓ Senaryo 0 — Nominal operasyon.<br><br>
+      <span style="color:var(--text-dim)">Coğrafi olarak 300 km içindeki havalimanı-liman<br>çiftlerinde eş zamanlı trafik anomalisi oluştuğunda<br>bu panel otomatik korelasyon üretir.</span><br><br>
+      <span style="color:var(--border2)">Metodoloji: Haversine mesafe + Z-score eşleşme<br>+ zaman penceresi korelasyonu (±6 saat)</span>
+    </div>`;
+    document.getElementById('corr-count').textContent = '';
+    return;
+  }
+
+  body.innerHTML = '';
+  corrData.forEach(c => {
+    const card = document.createElement('div');
+    card.className = `corr-card ${c.severity}`;
+    const airStr = c.airports.map(a=>`<span style="color:var(--air)">${a}</span>`).join(' ');
+    const seaStr = c.ports.map(p=>`<span style="color:var(--sea)">${p}</span>`).join(' ');
+    card.innerHTML = `
+      <div class="corr-title">${c.severity==='high'?'◉':'⚡'} ${c.title}</div>
+      <div class="corr-body">${c.body}</div>
+      <div class="corr-meta">
+        HAVA: ${airStr} &nbsp;|&nbsp; DENİZ: ${seaStr}
+        &nbsp;&nbsp;<span class="corr-distance">↔ ${c.dist} km</span>
+        &nbsp;&nbsp;<span style="color:var(--text-dim)">mesafe eşiği: 300 km</span>
+      </div>
+    `;
+    body.appendChild(card);
+  });
+
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:9px;color:var(--text-dim);padding:10px 10px;border-top:1px solid var(--border);line-height:1.8;margin-top:6px;';
+  note.innerHTML = `<span style="color:var(--corr)">KORELASYON METODOLOJİSİ</span><br>
+▸ Haversine ≤ 300 km → coğrafi yakınlık kritik eşiği<br>
+▸ Aynı yön anomali (ikisi de ↑ veya ↓) → doğrudan korelasyon<br>
+▸ Ters yön anomali → pivot/kayma sinyali<br>
+▸ Z-score: |z| > 2.0 uyarı, |z| > 3.0 kritik<br>
+▸ Zaman penceresi: ±6 saat, 30 günlük rolling baseline`;
+  body.appendChild(note);
+
+  document.getElementById('corr-count').textContent = `${corrData.length} KORELASYON`;
+}
+
+function updateBadges() {
+  const critA = flightData.filter(a=>a.severity==='crit').length;
+  const critS = marineData.filter(p=>p.severity==='crit').length;
+  const warnA = flightData.filter(a=>a.severity==='warn').length;
+  const warnS = marineData.filter(p=>p.severity==='warn').length;
+  const totalCrit = critA + critS;
+  const totalWarn = warnA + warnS;
+
+  const bc = document.getElementById('badge-crit');
+  const bw = document.getElementById('badge-warn');
+  const br = document.getElementById('badge-corr');
+
+  if (totalCrit > 0) { bc.style.display=''; bc.textContent = `◉ KRİTİK: ${totalCrit}`; }
+  else bc.style.display='none';
+
+  if (totalWarn > 0) { bw.style.display=''; bw.textContent = `⚠ UYARI: ${totalWarn}`; }
+  else bw.style.display='none';
+
+  if (corrData.length > 0) { br.style.display=''; br.textContent = `⬡ KORELASYON: ${corrData.length}`; }
+  else br.style.display='none';
+
+  const dot = document.getElementById('status-dot');
+  dot.style.background = totalCrit > 0 ? '#ff3a3a' : totalWarn > 0 ? '#ffb800' : '#2aff8a';
+  dot.style.boxShadow = `0 0 8px ${totalCrit>0?'#ff3a3a':totalWarn>0?'#ffb800':'#2aff8a'}`;
+}
+
+// ═══════════════════════════════════════════════
+// SCENARIO SELECT
+// ═══════════════════════════════════════════════
+function selectScenario(id) {
+  currentScenario = id;
+  document.querySelectorAll('.scen-btn').forEach(b => {
+    b.classList.remove('active','sea-theme','both-theme');
+  });
+  const btn = document.querySelector(`.scen-btn[data-scen="${id}"]`);
+  btn.classList.add('active');
+  const theme = SCENARIOS[id].theme;
+  if (theme) btn.classList.add(theme);
+
+  document.getElementById('scen-desc').textContent = SCENARIOS[id].desc;
+  refreshData();
+}
+
+function refreshData() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '[ TARAMA... ]';
+  btn.style.animation = 'scanning 0.8s infinite';
+
+  setTimeout(() => {
+    applyScenario(currentScenario);
+    renderFlights();
+    renderMarine();
+    renderCorrelation();
+    updateBadges();
+    updateMap();
+
+    btn.disabled = false;
+    btn.textContent = '[ YENİLE ]';
+    btn.style.animation = '';
+  }, 900);
+}
+
+// ═══════════════════════════════════════════════
+// UTC CLOCK
+// ═══════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const utc = now.toUTCString().replace('GMT','UTC');
+  document.getElementById('utc').textContent = utc;
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  applyScenario(0);
+  renderFlights();
+  renderMarine();
+  renderCorrelation();
+  updateBadges();
+  updateMap();
+  updateClock();
+  setInterval(updateClock, 1000);
+  setInterval(() => {
+    applyScenario(currentScenario);
+    renderFlights();
+    renderMarine();
+    updateBadges();
+    updateMap();
+  }, 20000);
+});
+</script>
+</body>
+</html>
