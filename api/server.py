@@ -8,7 +8,7 @@ import json
 import threading
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, render_template
 from flask_cors import CORS
 from storage.db import (
     get_active_anomalies, get_active_clusters,
@@ -21,7 +21,7 @@ from models.intelligence import IntelligenceReport
 from models.event import AnomalyEvent
 
 log = logging.getLogger("API")
-app = Flask(__name__)
+app = Flask(__name__, template_folder="../templates", static_folder="../static")
 CORS(app)
 
 # Generators
@@ -35,6 +35,15 @@ _scan_trigger = None
 def set_scan_trigger(fn):
     global _scan_trigger
     _scan_trigger = fn
+
+
+# ── DASHBOARD ─────────────────────────────────────────────────
+
+@app.route("/")
+@app.route("/dashboard")
+def dashboard():
+    """Ana dashboard sayfası."""
+    return render_template("dashboard.html")
 
 
 # ── ENDPOINTS ─────────────────────────────────────────────────
