@@ -21,30 +21,73 @@ from api.server import run_server, set_scan_trigger, app
 from logosint.integration import setup_logosint
 
 # Collectors
-from collectors.opensky_collector import OpenSkyCollector
-from collectors.marine_collector import MarineCollector
-from collectors.acled_collector import ACLEDCollector
-from collectors.telegram_collector import TelegramCollector
-from collectors.gdacs_collector import GDACSCollector
-from collectors.reddit_collector import RedditCollector
-from collectors.fred_collector import FREDCollector
-from collectors.gdelt_collector import GDELTCollector
-from collectors.rss_collector import RSSCollector
+try:
+    from collectors.opensky_collector import OpenSkyCollector
+except ImportError:
+    OpenSkyCollector = None
+
+try:
+    from collectors.marine_collector import MarineCollector
+except ImportError:
+    MarineCollector = None
+
+try:
+    from collectors.acled_collector import ACLEDCollector
+except ImportError:
+    ACLEDCollector = None
+
+try:
+    from collectors.telegram_collector import TelegramCollector
+except ImportError:
+    TelegramCollector = None
+
+try:
+    from collectors.gdacs_collector import GDACSCollector
+except ImportError:
+    GDACSCollector = None
+
+try:
+    from collectors.reddit_collector import RedditCollector
+except ImportError:
+    RedditCollector = None
+
+try:
+    from collectors.fred_collector import FREDCollector
+except ImportError:
+    FREDCollector = None
+
+try:
+    from collectors.gdelt_collector import GDELTCollector
+except ImportError:
+    GDELTCollector = None
+
+try:
+    from collectors.rss_collector import RSSCollector
+except ImportError:
+    RSSCollector = None
 
 log = logging.getLogger("Main")
 
-# Collectors registry
-COLLECTORS = {
-    "opensky": OpenSkyCollector(),
-    "marine": MarineCollector(),
-    "acled": ACLEDCollector(),
-    "telegram": TelegramCollector(),
-    "gdacs": GDACSCollector(),
-    "reddit": RedditCollector(),
-    "fred": FREDCollector(),
-    "gdelt": GDELTCollector(),
-    "rss": RSSCollector(),
-}
+# Collectors registry — only include available collectors
+COLLECTORS = {}
+if OpenSkyCollector:
+    COLLECTORS["opensky"] = OpenSkyCollector()
+if MarineCollector:
+    COLLECTORS["marine"] = MarineCollector()
+if ACLEDCollector:
+    COLLECTORS["acled"] = ACLEDCollector()
+if TelegramCollector:
+    COLLECTORS["telegram"] = TelegramCollector()
+if GDACSCollector:
+    COLLECTORS["gdacs"] = GDACSCollector()
+if RedditCollector:
+    COLLECTORS["reddit"] = RedditCollector()
+if FREDCollector:
+    COLLECTORS["fred"] = FREDCollector()
+if GDELTCollector:
+    COLLECTORS["gdelt"] = GDELTCollector()
+if RSSCollector:
+    COLLECTORS["rss"] = RSSCollector()
 
 
 def setup_logging():

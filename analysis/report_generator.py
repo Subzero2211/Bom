@@ -55,14 +55,6 @@ class ReportGenerator:
             fontName='Helvetica-Bold'
         ))
 
-        self.styles.add(ParagraphStyle(
-            name='BodyText',
-            parent=self.styles['BodyText'],
-            fontSize=10,
-            alignment=TA_JUSTIFY,
-            spaceAfter=12
-        ))
-
     def generate(self, report: IntelligenceReport) -> str:
         """
         Raporu PDF'e dönüştür.
