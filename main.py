@@ -15,7 +15,10 @@ from storage.db import init_db, insert_raw_event, insert_anomaly, insert_cluster
 from analysis.anomaly import analyze_numeric, analyze_event_severity, analyze_news_frequency
 from analysis.correlator import correlate
 from analysis.synthesizer import synthesize
-from api.server import run_server, set_scan_trigger
+from api.server import run_server, set_scan_trigger, app
+
+# LOGOSİNT Production Layer
+from logosint.integration import setup_logosint
 
 # Collectors
 from collectors.opensky_collector import OpenSkyCollector
@@ -190,6 +193,14 @@ def main():
     sched_thread = threading.Thread(target=scheduler_thread, daemon=True)
     sched_thread.start()
     log.info("✓ Scheduler thread başlatıldı")
+
+    # LOGOSİNT Production Layer'ı setup et
+    log.info("LOGOSİNT production layer başlatılıyor...")
+    try:
+        setup_logosint(app, collectors=COLLECTORS, interval_seconds=3600)
+        log.info("✓ LOGOSİNT entegrasyonu tamamlandı")
+    except Exception as e:
+        log.warning(f"LOGOSİNT setup uyarısı: {e}")
 
     # Flask API'yı başlat (blocking)
     log.info("Flask API başlatılıyor...")
