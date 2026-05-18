@@ -26,6 +26,9 @@ Thumbs.db
 osint_data.db
 osint_data.db-shm
 osint_data.db-wal
+logosint.db
+logosint.db-shm
+logosint.db-wal
 osint.log
 archive/
 *.pdf
