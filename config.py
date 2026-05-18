@@ -164,7 +164,7 @@ DATABASE = {
 
 API = {
     "host": "0.0.0.0",
-    "port": 5055,
+    "port": 8080,
     "debug": False,
 }
 
